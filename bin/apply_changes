@@ -1,0 +1,120 @@
+#!/bin/sh
+
+# this file directly manipulates /etc/passwd.
+# it makes the assumption that shadow passwords are _not_ used
+# (in fact, passwords should not be available for any authentication,
+#   it's SSH public key auth only)
+
+gid=1000
+
+# check for users to remove
+cp /etc/passwd /tmp/passwd.ref
+while read -r pwline
+do
+  user=$(echo $pwline | awk 'BEGIN { FS=":" } ; { print $1 }')
+  tgid=$(echo $pwline | awk 'BEGIN { FS=":" } ; { print $4 }')
+
+  if [ $gid -eq $tgid ];
+  then
+    if [ ! -f "/data/users/$user" ];
+    then
+      if [ ! -f "/data/users/$user.pub" ];
+      then
+        dt=$(date)
+        echo "$dt: User '$user' removed."
+        cat /etc/passwd | grep -v -e "^$user" > /etc/passwd
+      fi
+    fi
+  fi
+done < /tmp/passwd.ref
+rm /tmp/passwd.ref
+
+
+# check for users to add, or authorized keys to update
+groupaccts=""
+for file in /data/users/*
+do
+  username=$(basename "$file" .pub)
+  if [ "$username" == "*" ]; then
+    continue
+  fi
+  if [ "$username" == "." ]; then
+    continue
+  fi
+  if [ "$username" == ".." ]; then
+    continue
+  fi
+  
+  uid=$(stat -c '%u' "$file")
+  if [ $uid -eq 0 ]; then
+    dt=$(date)
+    echo "$dt: Skipping user $username - owner UID is 0."
+    continue
+  fi
+
+
+  # check if the user exists
+  pwline=$(grep -e "^$username" /etc/passwd)
+  if [ $? -eq 1 ]; then
+    # user didn't exist
+    dt=$(date)
+    echo "$dt: New user found, creating '$username' with uid=$uid"
+    pwline="$username:x:$uid:$gid:Auto User:/data/userdata/$username:/bin/false"
+    echo "$pwline" >> /etc/passwd
+  fi
+
+
+  # Make sure the directory structure exists with correct permissions
+  mkdir -p /data/userdata/$username/sftp
+  chown root:root /data/userdata/$username
+  chown $uid:$gid /data/userdata/$username/sftp
+
+
+  # check for changed uids
+  olduid=$(grep -e "^$username" /etc/passwd | awk 'BEGIN { FS=":" } { print $3 }')
+  if [ $olduid -ne $uid ]; then
+    dt=$(date)
+    echo -n "$dt: UID changed for $username, updating uid and changing ownership of sftp files..."
+    grep -v -e "^$username" /etc/passwd >/tmp/passwd.new
+    echo "$username:x:$uid:$gid:Auto User:/data/userdata/$username:/bin/false" >>/tmp/passwd.new
+    chown -R $uid:$gid /data/userdata/$username/sftp
+    mv /tmp/passwd.new /etc/passwd
+
+    echo "done"
+  fi
+
+
+  # keep the allowed keys up to date, and keep permissions correct
+  touch /data/userdata/$username/authorized_keys
+  diff $file /data/userdata/$username/authorized_keys >/dev/null
+  if [ $? -ne 0 ]; then
+    dt=$(date)
+    echo "$dt: Permitted keys for $username changed."
+    cp $file /data/userdata/$username/authorized_keys
+  fi
+  chown $uid:$gid /data/userdata/$username/authorized_keys
+  chmod 400 /data/userdata/$username/authorized_keys
+  
+
+
+  # handle the groupaccts variable
+  if [ -n "$groupaccts" ]; then
+    groupaccts="$groupaccts,$username"
+  else
+    groupaccts="$username"
+  fi
+done
+
+
+# update the groups file, to include the correct accounts in sftpusers
+cat /etc/group.base > /tmp/group.new
+echo "sftpusers:x:$gid:$groupaccts" >> /tmp/group.new
+mv /tmp/group.new /etc/group
+
+
+# make sure permissions of the etc files are right
+chown root:root /etc/passwd
+chown root:root /etc/group
+chmod 644 /etc/passwd
+chmod 644 /etc/group
+

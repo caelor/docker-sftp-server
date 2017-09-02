@@ -1,0 +1,45 @@
+#!/bin/sh
+
+# 
+# Check for key directories existing
+#
+
+mkdir -p /data/server
+mkdir -p /data/users
+mkdir -p /data/userdata
+
+chown root:root /data
+chown root:root /data/*
+chown root:root /data/userdata/*
+
+chmod 755 /data
+chmod 755 /data/*
+chmod 755 /data/userdata/*
+
+if [ ! -f /etc/group.base ]; 
+then
+  echo "Assuming new container. Taking snapshot of /etc/group"
+  cat /etc/group | grep -v -e '^sftpusers' > /etc/group.base
+fi
+
+if [ ! -f /data/server/ssh_host_ed25519_key ]; 
+then
+  echo "Creating new ECDSA server key..."
+  ssh-keygen -t ed25519 -f /data/server/ssh_host_ed25519_key -N ''
+fi
+if [ ! -f /data/server/ssh_host_rsa_key ];
+then
+  echo "Creating new RSA server key..."
+  ssh-keygen -t rsa -b 4096 -f /data/server/ssh_host_rsa_key -N ''
+fi
+
+echo "Starting container, running users refresh..."
+/usr/local/bin/apply_changes
+
+# start up
+#/usr/bin/supervisord -c /etc/supervisord.conf
+echo "Starting SSH daemon and config-watcher..."
+/usr/sbin/sshd -D -f /etc/ssh/sshd_config &
+
+/usr/local/bin/maintain_logins
+

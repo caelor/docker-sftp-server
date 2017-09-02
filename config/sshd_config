@@ -1,0 +1,30 @@
+Protocol 2
+Port 2022
+HostKey /data/server/ssh_host_ed25519_key
+HostKey /data/server/ssh_host_rsa_key
+
+# Requite non-root and public key auth only
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+
+# Tighten forwarding defaults
+AllowAgentForwarding no
+AllowTCPForwarding no
+X11Forwarding no
+
+# Only allow users that are in the sftpusers group
+AllowGroups sftpusers
+
+# Force SFTP (no shell access), and forced into a subdir of "sftp"
+# The chroot requires /data/userdata/{user} to be owned by root
+# The sftp target of /data/userdata/{user}/sftp should be owned by the user
+# The authorized_keys file is in /data/userdata/{user}/authorized_keys, which
+#   should not be reachable by the remote user.
+Subsystem sftp internal-sftp
+ForceCommand internal-sftp -d sftp
+ChrootDirectory /data/userdata/%u
+AuthorizedKeysFile authorized_keys
+
+LogLevel INFO

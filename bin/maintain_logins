@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Watch the /data/keys/ folder for changes
+while true;
+do
+  if [ "$poll_users" = true ];
+  then
+    /usr/local/bin/apply_changes
+  fi
+
+  # poll every minute
+  sleep 20
+done
